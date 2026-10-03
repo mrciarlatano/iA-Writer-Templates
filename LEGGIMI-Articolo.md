@@ -96,6 +96,16 @@ In `strumenti/automator/`:
   `~/Library/Services`.
 - `PDF Services/Aggiungi segnalibri.workflow`: voce per il menu PDF della
   finestra di stampa. Copiarla in `~/Library/PDF Services`.
+- `Aggiungi segnalibri al PDF aperto.workflow`: Azione rapida per Anteprima,
+  da copiare in `~/Library/Services`. Compare in Anteprima ▸ Servizi e agisce
+  sul PDF aperto: lo chiude e lo riapre, quindi non serve salvare. Se il
+  documento ha modifiche non salvate si ferma con un avviso. Alla prima
+  esecuzione chiede il permesso di Automazione per controllare Anteprima.
+  Si può assegnare una scorciatoia in Impostazioni ▸ Tastiera ▸ Scorciatoie ▸
+  Servizi.
+
+I tre elementi sono stati verificati dall'utente dal Finder, dal menu PDF della
+finestra di stampa e da Anteprima.
 
 Dopo aver installato un'Azione rapida può servire uscire e rientrare dalla
 sessione, oppure eseguire `/System/Library/CoreServices/pbs -update`.
