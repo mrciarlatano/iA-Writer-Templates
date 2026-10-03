@@ -205,34 +205,28 @@
 		} catch (e) {}
 	}
 
+	/* Diagnostica fuori flusso, nel margine destro della pagina. */
 	function debugInfo() {
 		try {
 			var d = document.getElementById('dbg');
 			if (!d) {
 				d = document.createElement('div');
 				d.id = 'dbg';
-				d.setAttribute('style', 'font:7pt monospace;color:#c00;text-indent:0');
-				document.body.insertBefore(d, document.body.firstChild);
+				document.body.style.position = 'relative';
+				document.body.appendChild(d);
 			}
-			var d2 = document.getElementById('dbg2');
-			if (!d2) {
-				d2 = document.createElement('div');
-				d2.id = 'dbg2';
-				d2.setAttribute('style', 'font:7pt monospace;color:#c00;text-indent:0;white-space:normal');
-				d.parentNode.insertBefore(d2, d.nextSibling);
+			var lines = ['v1.2 run ' + runCount, 'pages=' + pageBreaks,
+				'starts=' + traceStarts.join(','),
+				'LIM=' + Math.round(PAGE_PX) + ' SAFE=' + SAFETY + '/12'].concat(traceItems);
+			var small = lines.length > 100;
+			d.setAttribute('style', 'position:absolute;top:0;left:100%;margin-left:4px;width:78px;' +
+				'font:' + (small ? '4.5px/5.2px' : '5.5px/6.5px') + ' monospace;color:#c00;' +
+				'word-break:break-all;text-indent:0;text-align:left;white-space:normal;pointer-events:none');
+			while (d.firstChild) { d.removeChild(d.firstChild); }
+			for (var i = 0; i < lines.length; i++) {
+				d.appendChild(document.createTextNode(lines[i]));
+				d.appendChild(document.createElement('br'));
 			}
-			d2.textContent = 'starts=[' + traceStarts.join(',') + '] ' + traceItems.join(' | ');
-			var shy = (docRoot().textContent.match(/\u00AD/g) || []).length;
-			d.textContent = 'js ok \u00b7 run ' + runCount +
-				' \u00b7 author:' + (document.querySelector('.author') ? 'yes' : 'no') +
-				' \u00b7 abstract:' + (document.querySelector('.abstract-title') ? 'yes' : 'no') +
-				' \u00b7 shy:' + shy +
-				' \u00b7 W=' + window.innerWidth +
-				' \u00b7 htmlW=' + Math.round(document.documentElement.getBoundingClientRect().width) +
-				' \u00b7 dataW=' + Math.round(docRoot().getBoundingClientRect().width) +
-				' \u00b7 PAGE=' + Math.round(PAGE_PX) +
-				' \u00b7 pages=' + pageBreaks +
-				' \u00b7 pushed=' + document.querySelectorAll('[data-pg]').length;
 		} catch (e) {}
 	}
 
@@ -242,7 +236,6 @@
 		markAuthor();
 		markAbstract();
 		hyphenate();
-		if (DEBUG) { debugInfo(); }
 		paginate();
 		if (DEBUG) { debugInfo(); }
 	}
@@ -372,7 +365,9 @@
 				else { el.style.paddingTop = amount + 'px'; }
 				el.setAttribute('data-pg', '1');
 				pushedNow = true;
-				pageStart += LIM;
+				/* Con il margine il riquadro dell'elemento coincide con l'inizio
+				   pagina reale: si usa la posizione misurata dopo lo spostamento. */
+				pageStart = useMargin ? top(el) : pageStart + LIM;
 				traceStarts.push(Math.round(pageStart));
 				pageEnd = pageStart + LIM - SAFETY;
 				pageBreaks++;
@@ -391,6 +386,7 @@
 				var tag = el.tagName;
 				var T = top(el), B = bottom(el);
 				pushedNow = false;
+				var hNeed = 0, hAvail = 0;
 
 				/* L'elemento comincia gia' in una pagina successiva. */
 				if (T >= pageStart + LIM) {
@@ -413,7 +409,9 @@
 							end = xl[Math.min(3, xl.length) - 1].bottom;
 						}
 					}
-					if (T + (end - T) > pageEnd && !atTop) { pushEl(el, false); }
+					hNeed = Math.round(end - T);
+					hAvail = Math.round(pageEnd - T);
+					if (end > pageEnd - (12 - SAFETY) && !atTop) { pushEl(el, false); }
 				} else if (unsplittable(el)) {
 					if (B > pageEnd && !atTop) { pushEl(el, tag === 'TABLE'); }
 				} else {
@@ -443,8 +441,9 @@
 				if (DEBUG && /^(H[1-6]|TABLE|FIGURE|BLOCKQUOTE|PRE)$/.test(tag)) {
 					var pd = el.hasAttribute('data-pg') ? (parseFloat(el.style.paddingTop) || 0) : 0;
 					var rel = Math.round(top(el) + pd - pageStart);
-					traceItems.push(tag + ' ' + el.textContent.replace(/\s+/g, ' ').trim().slice(0, 10) +
-						':p' + traceStarts.length + '@' + rel + (el.hasAttribute('data-pg') ? '*' : ''));
+					traceItems.push(tag + el.textContent.replace(/\s+/g, ' ').trim().slice(0, 8) +
+						'@p' + traceStarts.length + ':' + rel + (el.hasAttribute('data-pg') ? '*' : '') +
+						(isHead(el) ? ' need=' + hNeed + ' avail=' + hAvail : ''));
 				}
 			}
 		} catch (e) { /* un errore non deve mai bloccare l'esportazione */ }

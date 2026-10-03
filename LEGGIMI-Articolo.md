@@ -117,3 +117,7 @@ sessione, oppure eseguire `/System/Library/CoreServices/pbs -update`.
 - Il motore riduce il documento a scala 0,8 nel PDF A4; il CSS lo compensa
   (variabile `--k` = 0,9375), così nel PDF le misure coincidono con il progetto.
 - Le note stanno a fondo documento, non a fondo pagina.
+- In rari casi un titolo può ancora finire in fondo a una pagina con il suo
+  testo nella pagina successiva (il motore ignora le regole `break-after`, perciò
+  lo script del modello simula l'impaginazione). Se succede, si corregge a mano:
+  aggiungere una riga o modificare il testo prima del titolo ed esportare di nuovo.
