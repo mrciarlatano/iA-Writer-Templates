@@ -1,0 +1,246 @@
+/*
+  Articolo — template iA Writer, modello: articolo arXiv.
+  A4, margini 3 cm, Source Serif 4 11 pt, interlinea singola.
+  Citazioni a capo 10 pt, note 9 pt.
+
+  Scala di esportazione: il motore di iA Writer impagina a 743,75 px CSS
+  e riduce il risultato di 0,8 nel PDF A4 (595 x 842 pt). La variabile
+  --k = 0,75 / 0,8 = 0,9375 compensa la riduzione: ogni lunghezza
+  assoluta e' scritta come calc(valore * var(--k)), cosi' nel PDF le
+  misure coincidono con il progetto (testo 11 pt, margini 3 cm).
+  Nell'anteprima (classi mac, ios, windows sull'elemento html) --k vale 1
+  e si vedono le misure CSS reali.
+
+  Impaginazione e sillabazione sono affidate allo script in
+  document.html (titoli non isolati a fondo pagina, orfane/vedove,
+  tabelle intere, trattini soft in italiano, campi Autore e Abstract).
+  Le altezze di intestazione e piè di pagina (85 pt = 3 cm) sono in
+  Info.plist e non sono scalate. L'intestazione (header.html) è vuota;
+  il piè di pagina (footer.html) contiene solo il numero di pagina.
+*/
+html { --k: 0.9375; }
+html.mac, html.ios, html.windows { --k: 1; }
+
+/* ---------- Base ---------- */
+html {
+	font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+	font-size: calc(11pt * var(--k));
+	line-height: 1.2;
+	color: #000;
+	background-color: #fff;
+	font-kerning: normal;
+	font-variant-ligatures: common-ligatures;
+	/* Sillabazione: trattini soft inseriti dallo script in document.html;
+	   hyphens:auto viene ignorato dal motore di esportazione. */
+	-webkit-hyphens: manual;
+	hyphens: manual;
+}
+html.night-mode {
+	color: #e6e6e6;
+	background-color: #1b1b1b;
+}
+body {
+	margin: 0 calc(3cm * var(--k));
+	padding: 0;
+}
+
+/* ---------- Paragrafi ---------- */
+p {
+	margin: 0;
+	text-align: justify;
+	text-indent: calc(6pt * var(--k));      /* anche dopo i titoli */
+	orphans: 3;
+	widows: 3;
+}
+
+/* ---------- Titoli ---------- */
+h1, h2, h3, h4, h5, h6 {
+	font-weight: bold;
+	text-align: left;
+	text-indent: 0;
+	-webkit-hyphens: none;
+	hyphens: none;
+	page-break-after: avoid;
+	break-after: avoid;
+}
+h1 { font-size: calc(14pt * var(--k)); text-align: center; margin: 0 0 calc(18pt * var(--k)); }
+h2 { font-size: calc(13pt * var(--k)); margin: calc(18pt * var(--k)) 0 calc(9pt * var(--k)); }
+h3 { font-size: calc(12pt * var(--k)); margin: calc(12pt * var(--k)) 0 calc(4pt * var(--k)); }
+h4, h5, h6 { font-size: calc(11pt * var(--k)); font-style: italic; margin: calc(9pt * var(--k)) 0 calc(3pt * var(--k)); }
+
+/* ---------- Autore e abstract (facoltativi, marcati dallo script) ---------- */
+.author {
+	text-align: center;
+	text-indent: 0;
+	font-size: calc(14pt * var(--k));
+	font-weight: normal;
+	font-style: normal;
+	margin: 0 0 calc(18pt * var(--k));
+}
+h1.abstract-title, h2.abstract-title, h3.abstract-title,
+h4.abstract-title, h5.abstract-title, h6.abstract-title, div.abstract-title {
+	text-align: center;
+	font-weight: bold;
+	font-style: normal;
+	font-size: calc(10pt * var(--k));
+	text-indent: 0;
+	margin: calc(18pt * var(--k)) 0 calc(6pt * var(--k));
+	-webkit-hyphens: none;
+	hyphens: none;
+	page-break-after: avoid;
+	break-after: avoid;
+}
+.abstract {
+	font-size: calc(10pt * var(--k));
+	font-style: italic;
+	margin-left: calc(1cm * var(--k));
+	margin-right: calc(1cm * var(--k));
+}
+
+/* ---------- Enfasi ---------- */
+em, i { font-style: italic; }
+strong, b { font-weight: bold; }
+
+/* ---------- Citazioni a capo ---------- */
+blockquote {
+	margin: calc(13pt * var(--k)) calc(1cm * var(--k));
+	font-size: calc(10pt * var(--k));
+	page-break-inside: avoid;
+	break-inside: avoid;
+}
+blockquote p {
+	text-indent: 0;
+	text-align: justify;
+}
+
+/* ---------- Elenchi ---------- */
+ul, ol {
+	margin: 0;
+	padding-left: calc(0.5cm * var(--k));
+}
+ul { list-style: none; }
+ul > li { position: relative; }
+ul > li::before {
+	content: "\2013";               /* trattino medio */
+	position: absolute;
+	left: calc(-0.5cm * var(--k));
+}
+ul ul { padding-left: calc(1cm * var(--k)); }
+ul ul > li::before {
+	content: "\2022";               /* pallino */
+	left: calc(-0.5cm * var(--k));
+}
+ol { padding-left: calc(0.8cm * var(--k)); }
+li { orphans: 3; widows: 3; }
+li p { text-indent: 0; }
+
+/* ---------- URL e codice in monospazio ---------- */
+code, pre, kbd, samp, a {
+	font-family: "Source Code Pro", Menlo, monospace;
+	font-size: 0.9em;
+	-webkit-hyphens: none;
+	hyphens: none;
+}
+a {
+	color: inherit;
+	text-decoration: none;
+	/* I collegamenti possono andare a capo ovunque, così gli URL lunghi
+	   riempiono la riga (nessun grande spazio nella giustificazione);
+	   il PDF mantiene una sola annotazione di collegamento con l'URL
+	   completo, verificato su un'esportazione reale. */
+	word-break: break-all;
+	overflow-wrap: anywhere;
+}
+pre {
+	font-size: calc(9pt * var(--k));
+	line-height: 1.25;
+	margin: calc(9pt * var(--k)) 0;
+	white-space: pre-wrap;
+	text-align: left;
+}
+
+/* ---------- Figure e tabelle: «Fig. 1.» / «Tab. 1.» ---------- */
+body { counter-reset: fig tab; }
+figure {
+	margin: calc(13pt * var(--k)) 0;
+	text-align: center;
+	page-break-inside: avoid;
+	break-inside: avoid;
+	counter-increment: fig;
+}
+figure img { max-width: 100%; }
+figcaption, caption {
+	font-size: calc(10pt * var(--k));
+	text-align: center;
+	text-indent: 0;
+	margin-top: calc(4pt * var(--k));
+}
+figcaption::before { content: "Fig. " counter(fig) ". "; }
+
+table {
+	border-collapse: collapse;
+	max-width: calc(13cm * var(--k));
+	margin: calc(13pt * var(--k)) auto;
+	font-size: calc(10pt * var(--k));
+	counter-increment: tab;
+	page-break-inside: avoid;
+	break-inside: avoid;
+}
+caption {
+	caption-side: bottom;
+	padding-top: calc(4pt * var(--k));
+}
+caption::before { content: "Tab. " counter(tab) ". "; }
+th, td {
+	padding: calc(2pt * var(--k)) calc(6pt * var(--k));
+	text-align: left;
+	border: none;
+}
+/* Le tabelle non vengono spezzate; se sono troppo alte, l'intestazione
+   si ripete e ogni riga ha un filetto, così ogni frammento è chiuso. */
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; break-inside: avoid; }
+thead th { border-top: calc(0.75pt * var(--k)) solid currentColor; border-bottom: calc(0.5pt * var(--k)) solid currentColor; }
+tbody td { border-bottom: calc(0.25pt * var(--k)) solid #999; }
+tbody tr:last-child td { border-bottom: calc(0.75pt * var(--k)) solid currentColor; }
+table p { text-indent: 0; }
+
+/* ---------- Note a piè di pagina (numerazione continua) ---------- */
+sup { font-size: 0.7em; line-height: 0; }
+.footnotes {
+	font-size: calc(9pt * var(--k));
+	line-height: 1.2;
+	margin-top: calc(18pt * var(--k));
+}
+.footnotes hr {
+	width: calc(4cm * var(--k));
+	margin: 0 0 calc(6pt * var(--k));
+	border: none;
+	border-top: calc(0.5pt * var(--k)) solid currentColor;
+}
+.footnotes ol { padding-left: calc(0.6cm * var(--k)); margin: 0; }
+.footnotes li p { text-indent: 0; }
+.footnotes a.reversefootnote, .footnotes a[href^="#fnref"] { display: none; }
+
+/* ---------- Varie ---------- */
+hr {
+	border: none;
+	border-top: calc(0.5pt * var(--k)) solid currentColor;
+	margin: calc(13pt * var(--k)) 0;
+}
+img { max-width: 100%; }
+
+/* ---------- Intestazione: vuota per ora (predisposta per sviluppi futuri) ---------- */
+body.header {
+	font-size: calc(10pt * var(--k));
+	text-align: center;
+	padding-top: calc(28pt * var(--k));
+}
+
+/* ---------- Piè di pagina: solo numero di pagina, centrato ---------- */
+body.footer {
+	font-size: calc(10pt * var(--k));
+	text-align: center;
+	padding-top: calc(28pt * var(--k));
+}
+body.footer p { text-align: center; text-indent: 0; }

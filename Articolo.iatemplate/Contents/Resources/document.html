@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="it">
+<head>
+	<meta charset="UTF-8">
+	<link rel="stylesheet" media="all" href="style.css">
+</head>
+<body>
+<div data-document>&nbsp;</div>
+<script>
+(function () {
+	'use strict';
+
+	var DEBUG = false;
+	var runCount = 0;
+
+	/* Lingua: iA Writer può riscrivere l'elemento html, quindi la
+	   reimpostiamo a ogni esecuzione (serve alla sillabazione). */
+	function setLang() {
+		try { document.documentElement.setAttribute('lang', 'it'); } catch (e) {}
+	}
+	setLang();
+
+	function docRoot() {
+		return document.querySelector('[data-document]') || document.body;
+	}
+	function isHeading(el) {
+		return !!el && /^H[1-6]$/.test(el.tagName);
+	}
+	/* Rimuove dall'inizio del testo di el i primi n caratteri
+	   (attraversando i nodi di testo). */
+	function stripPrefix(el, n) {
+		var tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+		var nodes = [], nd;
+		while ((nd = tw.nextNode())) { nodes.push(nd); }
+		for (var i = 0; i < nodes.length && n > 0; i++) {
+			var len = nodes[i].data.length;
+			if (len <= n) { nodes[i].data = ''; n -= len; }
+			else { nodes[i].data = nodes[i].data.slice(n); n = 0; }
+		}
+	}
+
+	/* ---------- Autore (facoltativo) ---------- */
+	function markAuthor() {
+		try {
+			if (document.querySelector('.author')) { return; }
+			var root = docRoot();
+			var h1 = root.querySelector('h1');
+			if (!h1) { return; }
+			var re = /^\s*(?:autore|autori|author|authors)\s*:\s*/i;
+			var el = h1.nextElementSibling;
+			while (el && !isHeading(el)) {
+				if (el.tagName === 'P') {
+					var m = re.exec(el.textContent);
+					if (m) {
+						stripPrefix(el, m[0].length);
+						el.classList.add('author');
+						return;
+					}
+				}
+				el = el.nextElementSibling;
+			}
+		} catch (e) {}
+	}
+
+	/* ---------- Abstract (facoltativo) ---------- */
+	function markAbstract() {
+		try {
+			if (document.querySelector('.abstract-title')) { return; }
+			var root = docRoot();
+			var hs = root.querySelectorAll('h1,h2,h3,h4,h5,h6');
+			for (var i = 0; i < hs.length; i++) {
+				if (/^(abstract|riassunto|sommario)\.?$/i.test(hs[i].textContent.trim())) {
+					hs[i].classList.add('abstract-title');
+					var s = hs[i].nextElementSibling;
+					while (s && !isHeading(s)) {
+						s.classList.add('abstract');
+						s = s.nextElementSibling;
+					}
+					return;
+				}
+			}
+			var re = /^\s*(abstract|riassunto|sommario)\s*:\s*/i;
+			var ps = root.querySelectorAll('p');
+			for (var j = 0; j < ps.length; j++) {
+				var m = re.exec(ps[j].textContent);
+				if (m) {
+					var w = m[1].toLowerCase();
+					var t = document.createElement('div');
+					t.className = 'abstract-title';
+					t.textContent = w.charAt(0).toUpperCase() + w.slice(1);
+					ps[j].parentNode.insertBefore(t, ps[j]);
+					stripPrefix(ps[j], m[0].length);
+					ps[j].classList.add('abstract');
+					return;
+				}
+			}
+		} catch (e) {}
+	}
+
+	/* ---------- Sillabazione italiana (trattini soft) ---------- */
+	/* SILLABE-BEGIN */
+	var VOWELS = 'aeiouàáâäãåèéêëìíîïòóôöõùúûüýÿ';
+	function isV(ch) { return VOWELS.indexOf(ch) !== -1; }
+	function isStrong(ch) { return ch === 'a' || ch === 'e' || ch === 'o' || (isV(ch) && 'iu'.indexOf(ch) === -1); }
+	function isAccented(ch) { return isV(ch) && 'aeiou'.indexOf(ch) === -1; }
+
+	/* Lunghezza (in lettere) dell'attacco della sillaba che segue
+	   il gruppo consonantico c. */
+	function onsetLength(c) {
+		if (c.length <= 1) { return c.length; }
+		var units = [], j = 0, d;
+		while (j < c.length) {
+			d = c.substr(j, 2);
+			if (d === 'ch' || d === 'gh' || d === 'gn' || d === 'gl' || d === 'qu' ||
+				(d === 'sc' && j + 2 === c.length)) {
+				units.push(d); j += 2;
+			} else { units.push(c.charAt(j)); j += 1; }
+		}
+		var k = 1;
+		var last = units[units.length - 1];
+		var prev = units.length > 1 ? units[units.length - 2] : '';
+		if ((last === 'l' || last === 'r') && prev.length === 1 && 'bcdfgptv'.indexOf(prev) !== -1) { k = 2; }
+		if (units.length > k && units[units.length - k - 1] === 's' && units[units.length - k] !== 's') { k++; }
+		var len = 0;
+		for (var u = units.length - k; u < units.length; u++) { len += units[u].length; }
+		return len;
+	}
+
+	/* Restituisce le sillabe di una parola (solo lettere). */
+	function sillabe(word) {
+		var w = word.toLowerCase();
+		var n = w.length, i;
+		var cons = [];
+		for (i = 0; i < n; i++) {
+			cons[i] = !isV(w.charAt(i));
+			/* la u di "qu" davanti a vocale è consonante */
+			if (w.charAt(i) === 'u' && i > 0 && w.charAt(i - 1) === 'q' && i + 1 < n && isV(w.charAt(i + 1))) {
+				cons[i] = true;
+			}
+		}
+		/* nuclei vocalici: dittonghi/trittonghi uniti, iati separati */
+		var nuclei = [];
+		i = 0;
+		while (i < n) {
+			if (cons[i]) { i++; continue; }
+			var s = i;
+			while (i + 1 < n && !cons[i + 1] &&
+				!((isStrong(w.charAt(i)) && isStrong(w.charAt(i + 1))) || isAccented(w.charAt(i)))) { i++; }
+			nuclei.push([s, i + 1]);
+			i++;
+		}
+		var starts = [0];
+		for (var k = 0; k + 1 < nuclei.length; k++) {
+			var e = nuclei[k][1], nx = nuclei[k + 1][0];
+			var on = onsetLength(w.slice(e, nx));
+			starts.push(nx - on);
+		}
+		var out = [];
+		for (var q = 0; q < starts.length; q++) {
+			out.push(word.slice(starts[q], q + 1 < starts.length ? starts[q + 1] : n));
+		}
+		return out;
+	}
+	/* SILLABE-END */
+	if (typeof window !== 'undefined') { window.__sillabe = sillabe; }
+
+	var SHY = '­';
+	var EXCLUDE = 'A,CODE,PRE,KBD,SAMP,H1,H2,H3,H4,H5,H6,SUP,FIGCAPTION,CAPTION,TABLE,.abstract-title';
+	var INCLUDE = 'P,LI,BLOCKQUOTE,.footnotes';
+
+	function hyphenateText(text) {
+		var re = /[A-Za-zÀ-ÖØ-öø-ÿ]+/g, m, out = '', pos = 0;
+		while ((m = re.exec(text))) {
+			var word = m[0], st = m.index, en = st + word.length;
+			var before = st > 0 ? text.charAt(st - 1) : '';
+			var after = en < text.length ? text.charAt(en) : '';
+			out += text.slice(pos, st);
+			pos = en;
+			if (word.length < 6 || /\d/.test(before) || /\d/.test(after)) { out += word; continue; }
+			var syl = sillabe(word), acc = 0, res = '';
+			for (var i = 0; i < syl.length; i++) {
+				res += syl[i];
+				acc += syl[i].length;
+				if (i < syl.length - 1 && acc >= 2 && word.length - acc >= 3) { res += SHY; }
+			}
+			out += res;
+		}
+		return out + text.slice(pos);
+	}
+
+	function hyphenate() {
+		try {
+			var tw = document.createTreeWalker(docRoot(), NodeFilter.SHOW_TEXT, null, false);
+			var nodes = [], nd;
+			while ((nd = tw.nextNode())) {
+				var p = nd.parentElement;
+				if (!p || p.closest(EXCLUDE) || !p.closest(INCLUDE)) { continue; }
+				nodes.push(nd);
+			}
+			for (var i = 0; i < nodes.length; i++) {
+				var clean = nodes[i].data.split(SHY).join('');
+				var res = hyphenateText(clean);
+				if (res !== nodes[i].data) { nodes[i].data = res; }
+			}
+		} catch (e) {}
+	}
+
+	function debugInfo() {
+		try {
+			var d = document.getElementById('dbg');
+			if (!d) {
+				d = document.createElement('div');
+				d.id = 'dbg';
+				d.setAttribute('style', 'font:7pt monospace;color:#c00;text-indent:0');
+				document.body.insertBefore(d, document.body.firstChild);
+			}
+			var d2 = document.getElementById('dbg2');
+			if (!d2) {
+				d2 = document.createElement('div');
+				d2.id = 'dbg2';
+				d2.setAttribute('style', 'font:7pt monospace;color:#c00;text-indent:0;white-space:normal');
+				d.parentNode.insertBefore(d2, d.nextSibling);
+			}
+			d2.textContent = 'starts=[' + traceStarts.join(',') + '] ' + traceItems.join(' | ');
+			var shy = (docRoot().textContent.match(/\u00AD/g) || []).length;
+			d.textContent = 'js ok \u00b7 run ' + runCount +
+				' \u00b7 author:' + (document.querySelector('.author') ? 'yes' : 'no') +
+				' \u00b7 abstract:' + (document.querySelector('.abstract-title') ? 'yes' : 'no') +
+				' \u00b7 shy:' + shy +
+				' \u00b7 W=' + window.innerWidth +
+				' \u00b7 htmlW=' + Math.round(document.documentElement.getBoundingClientRect().width) +
+				' \u00b7 dataW=' + Math.round(docRoot().getBoundingClientRect().width) +
+				' \u00b7 PAGE=' + Math.round(PAGE_PX) +
+				' \u00b7 pages=' + pageBreaks +
+				' \u00b7 pushed=' + document.querySelectorAll('[data-pg]').length;
+		} catch (e) {}
+	}
+
+	function run() {
+		runCount++;
+		forceWidth();
+		markAuthor();
+		markAbstract();
+		hyphenate();
+		if (DEBUG) { debugInfo(); }
+		paginate();
+		if (DEBUG) { debugInfo(); }
+	}
+
+	/* Impaginazione deterministica.
+	   Sostituisce break-after:avoid e simili, che il motore di
+	   esportazione ignora. Il motore impagina a PRINT_W px CSS e poi
+	   riduce di 0,8 nel PDF A4: area utile 842 - 2*85 = 672 pt reali
+	   = 672 / 0,8 = 840 px CSS. */
+	var PRINT_W = 743.75;
+	var PAGE_PX = 672 / 0.8;
+	var SAFETY = 4;
+
+	/* Forza la larghezza di misura uguale a quella di stampa. */
+	function isPreview() {
+		var cl = document.documentElement.classList;
+		return cl.contains('mac') || cl.contains('ios') || cl.contains('windows');
+	}
+	function forceWidth() {
+		try {
+			var st = document.documentElement.style;
+			if (isPreview()) { st.width = ''; st.margin = ''; return; }
+			st.width = PRINT_W + 'px';
+			st.margin = '0';
+		} catch (e) {}
+	}
+
+	var pageBreaks = 0;
+	var traceItems = [], traceStarts = [0];
+
+	function top(el) {
+		return el.getBoundingClientRect().top + window.pageYOffset;
+	}
+	function bottom(el) {
+		return el.getBoundingClientRect().bottom + window.pageYOffset;
+	}
+	function lineHeightPx(el) {
+		var cs = window.getComputedStyle(el);
+		var lh = parseFloat(cs.lineHeight);
+		if (isNaN(lh)) { lh = 1.2 * parseFloat(cs.fontSize); }
+		return lh;
+	}
+
+	/* SIM-BEGIN */
+	/* Indice della prima riga il cui bordo inferiore supera pageEnd
+	   (-1 se tutte stanno nella pagina). */
+	function firstOverflow(lines, pageEnd) {
+		for (var i = 0; i < lines.length; i++) {
+			if (lines[i].bottom > pageEnd) { return i; }
+		}
+		return -1;
+	}
+	/* SIM-END */
+
+	/* Righe di testo di un elemento, in coordinate di documento:
+	   i rettangoli dei nodi di testo vengono fusi se i centri
+	   verticali sono vicini (stessa riga). Gli SUP sono ignorati. */
+	function lineRects(el) {
+		var rects = [];
+		try {
+			var tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+			var nd, off = window.pageYOffset;
+			while ((nd = tw.nextNode())) {
+				if (!nd.data.replace(/\s+/g, '')) { continue; }
+				if (nd.parentElement && nd.parentElement.closest('SUP')) { continue; }
+				var r = document.createRange();
+				r.selectNodeContents(nd);
+				var cr = r.getClientRects();
+				for (var i = 0; i < cr.length; i++) {
+					if (cr[i].height > 0) {
+						rects.push({ top: cr[i].top + off, bottom: cr[i].bottom + off });
+					}
+				}
+			}
+		} catch (e) { rects = []; }
+		if (!rects.length) { return [{ top: top(el), bottom: bottom(el) }]; }
+		rects.sort(function (x, y) { return x.top - y.top; });
+		var lines = [], cur = null, cc = 0;
+		for (var j = 0; j < rects.length; j++) {
+			var q = rects[j], c = (q.top + q.bottom) / 2;
+			if (cur && Math.abs(c - cc) < 6) {
+				if (q.top < cur.top) { cur.top = q.top; }
+				if (q.bottom > cur.bottom) { cur.bottom = q.bottom; }
+			} else {
+				cur = { top: q.top, bottom: q.bottom };
+				cc = c;
+				lines.push(cur);
+			}
+		}
+		return lines;
+	}
+
+	function paginate() {
+		try {
+			setLang();
+			forceWidth();
+			if (isPreview() && !(window.matchMedia && window.matchMedia('print').matches)) { return; }
+
+			/* Annulla le correzioni precedenti (idempotenza). */
+			var done = document.querySelectorAll('[data-pg]');
+			for (var i = 0; i < done.length; i++) {
+				done[i].style.paddingTop = '';
+				done[i].style.marginTop = '';
+				done[i].style.pageBreakBefore = '';
+				done[i].style.breakBefore = '';
+				done[i].removeAttribute('data-pg');
+			}
+
+			var LIM = PAGE_PX;
+			var pageStart = 0;
+			var pageEnd = LIM - SAFETY;
+			pageBreaks = 0;
+			traceItems = [];
+			traceStarts = [0];
+			var pushedNow = false;
+
+			/* Sposta el sulla pagina successiva. */
+			function pushEl(el, useMargin) {
+				var amount = (pageStart + LIM) - top(el);
+				if (amount < 0) { amount = 0; }
+				if (useMargin) {
+					el.style.marginTop = amount + 'px';
+					/* Se il motore tronca i margini a fine pagina, forza l'interruzione. */
+					el.style.pageBreakBefore = 'always';
+					el.style.breakBefore = 'page';
+				}
+				else { el.style.paddingTop = amount + 'px'; }
+				el.setAttribute('data-pg', '1');
+				pushedNow = true;
+				pageStart += LIM;
+				traceStarts.push(Math.round(pageStart));
+				pageEnd = pageStart + LIM - SAFETY;
+				pageBreaks++;
+			}
+			function isHead(e) { return !!e && /^H[1-6]$/.test(e.tagName); }
+			function unsplittable(e) {
+				var t = e.tagName;
+				return (t === 'TABLE' || t === 'FIGURE' || t === 'PRE' || t === 'BLOCKQUOTE') &&
+					(bottom(e) - top(e)) < LIM;
+			}
+
+			var root = document.querySelector('[data-document]') || document.body;
+			var children = root.children;
+			for (var k = 0; k < children.length; k++) {
+				var el = children[k];
+				var tag = el.tagName;
+				var T = top(el), B = bottom(el);
+				pushedNow = false;
+
+				/* L'elemento comincia gia' in una pagina successiva. */
+				if (T >= pageStart + LIM) {
+					pageStart = T;
+					traceStarts.push(Math.round(pageStart));
+					pageEnd = pageStart + LIM - SAFETY;
+					pageBreaks++;
+				}
+				var atTop = (T - pageStart) <= 2;
+
+				if (isHead(el)) {
+					/* Catena: titolo, titoli successivi, primo elemento di testo. */
+					var x = el.nextElementSibling, end = B;
+					while (isHead(x)) { end = bottom(x); x = x.nextElementSibling; }
+					if (x) {
+						if (unsplittable(x) || x.tagName === 'TABLE' || x.tagName === 'FIGURE' || x.tagName === 'PRE') {
+							end = Math.min(bottom(x), top(x) + LIM);
+						} else {
+							var xl = lineRects(x);
+							end = xl[Math.min(3, xl.length) - 1].bottom;
+						}
+					}
+					if (T + (end - T) > pageEnd && !atTop) { pushEl(el, false); }
+				} else if (unsplittable(el)) {
+					if (B > pageEnd && !atTop) { pushEl(el, tag === 'TABLE'); }
+				} else {
+					var lines = lineRects(el), guard = 0;
+					while (guard++ < 60) {
+						var f = firstOverflow(lines, pageEnd);
+						if (f < 0) { break; }
+						if (f < 3 && lines.length > f && (top(el) - pageStart) > 2) {
+							pushEl(el, false);
+							lines = lineRects(el);
+						} else {
+							pageStart = lines[f].top;
+							traceStarts.push(Math.round(pageStart));
+							pageEnd = pageStart + LIM - SAFETY;
+							pageBreaks++;
+						}
+					}
+				}
+				/* Elementi indivisibili piu' alti di una pagina: riallinea. */
+				var Bn = bottom(el);
+				while (Bn > pageStart + LIM) {
+					pageStart += LIM;
+					traceStarts.push(Math.round(pageStart));
+					pageEnd = pageStart + LIM - SAFETY;
+					pageBreaks++;
+				}
+				if (DEBUG && /^(H[1-6]|TABLE|FIGURE|BLOCKQUOTE|PRE)$/.test(tag)) {
+					var pd = el.hasAttribute('data-pg') ? (parseFloat(el.style.paddingTop) || 0) : 0;
+					var rel = Math.round(top(el) + pd - pageStart);
+					traceItems.push(tag + ' ' + el.textContent.replace(/\s+/g, ' ').trim().slice(0, 10) +
+						':p' + traceStarts.length + '@' + rel + (el.hasAttribute('data-pg') ? '*' : ''));
+				}
+			}
+		} catch (e) { /* un errore non deve mai bloccare l'esportazione */ }
+	}
+
+	document.addEventListener('DOMContentLoaded', run);
+	window.addEventListener('load', run);
+	if (document.fonts && document.fonts.ready) { document.fonts.ready.then(run); }
+	document.addEventListener('ia-writer-change', run, true);
+	setTimeout(run, 300);
+	setTimeout(run, 1200);
+})();
+</script>
+</body>
+</html>
