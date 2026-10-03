@@ -1,0 +1,406 @@
+#!/Library/Frameworks/Python.framework/Versions/3.13/bin/python3
+# -*- coding: utf-8 -*-
+"""pdfbookmarks - aggiunge un indice (segnalibri) a un PDF senza outline.
+
+Pensato per i PDF esportati da iA Writer (macOS Quartz), che non contengono
+segnalibri. I titoli provengono dal sorgente Markdown oppure, in mancanza,
+vengono dedotti dalle dimensioni dei caratteri.
+"""
+
+import argparse
+import os
+import re
+import sys
+import tempfile
+import unicodedata
+from collections import Counter
+
+# PyMuPDF: prefer the new module name to avoid the deprecation warning.
+try:
+    import pymupdf as fitz
+except ImportError:  # pragma: no cover
+    try:
+        import fitz
+    except ImportError:
+        sys.stderr.write("pdfbookmarks: PyMuPDF non disponibile "
+                         "(installare con /Library/Frameworks/Python.framework/Versions/3.13/bin/pip3 install pymupdf)\n")
+        sys.exit(1)
+
+# ----------------------------------------------------------------- constants
+MIN_SIZE = 8.0            # ignore text smaller than this (debug markers etc.)
+MARGIN_TOP = 70.0         # running header area (font-size mode only)
+MARGIN_BOTTOM = 70.0      # running footer area (font-size mode only)
+BIGGER_RATIO = 1.04       # heading must exceed body size by more than 4%
+MERGE_GAP = 1.3           # max gap / pitch to merge wrapped heading lines
+TITLE_GAP = 1.5           # gap / pitch splitting title from author lines
+DEST_MARGIN = 6.0         # points above the heading line
+ABSTRACT_WORDS = {"abstract", "riassunto", "sommario"}
+
+
+class Fail(Exception):
+    """Fatal error: message is printed and exit status is 1."""
+
+
+# ------------------------------------------------------------ text utilities
+def clean_pdf_title(text):
+    """Outline title from PDF text: NFKC, no soft hyphen, ASCII apostrophe."""
+    t = unicodedata.normalize("NFKC", text).replace("­", "")
+    for ch in ("ʼ", "’", "‘"):
+        t = t.replace(ch, "'")
+    return " ".join(t.split())
+
+
+def normalize(text):
+    """Normalize text for comparison (as clean_pdf_title, plus casefold)."""
+    return clean_pdf_title(text).casefold()
+
+
+# --------------------------------------------------------------- Markdown
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+HEAD_RE = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$")
+
+
+def clean_heading(text):
+    """Strip Markdown/MultiMarkdown decoration from a heading text."""
+    t = re.sub(r"[ \t]+#+[ \t]*$", "", text)            # closing #'s
+    t = re.sub(r"^#+$", "", t)
+    t = re.sub(r"\s+\[[^\]\[]*\]\s*$", "", t)           # MMD label " [Label]"
+    t = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", t)    # [text](url)
+    t = re.sub(r"!?\[([^\]]*)\]\[[^\]]*\]", r"\1", t)   # [text][ref]
+    t = re.sub(r"`+([^`]*)`+", r"\1", t)                # inline code
+    t = re.sub(r"\\([\\`*_{}\[\]()#+\-.!~])", r"\1", t)  # backslash escapes
+    t = t.replace("*", "").replace("~~", "")            # emphasis
+    t = re.sub(r"(?<!\w)_+|_+(?!\w)", "", t)            # _emphasis_
+    return " ".join(t.split())
+
+
+def parse_markdown(path):
+    """Return [(level, title)] for ATX headings outside fenced code."""
+    try:
+        with open(path, encoding="utf-8-sig", errors="replace") as fh:
+            raw = fh.read()
+    except OSError as exc:
+        raise Fail("impossibile leggere il file Markdown: %s" % exc)
+    heads, fence = [], None
+    for line in raw.splitlines():
+        m = FENCE_RE.match(line)
+        if m:
+            marker = m.group(1)
+            if fence is None:
+                fence = (marker[0], len(marker))
+            elif (marker[0] == fence[0] and len(marker) >= fence[1]
+                  and not line.strip().strip(marker[0])):
+                fence = None
+            continue
+        if fence:
+            continue
+        m = HEAD_RE.match(line)
+        if m:
+            title = clean_heading(m.group(2) or "")
+            if title:
+                heads.append((len(m.group(1)), title))
+    return heads
+
+
+# ------------------------------------------------------------ PDF text lines
+class Line:
+    """A text line of the PDF with geometry and normalized text."""
+    __slots__ = ("page", "bbox", "size", "text", "norm")
+
+    def __init__(self, page, bbox, size, text):
+        self.page, self.bbox, self.size = page, bbox, size
+        self.text, self.norm = text, normalize(text)
+
+    @property
+    def x0(self):
+        return self.bbox[0]
+
+    @property
+    def y0(self):
+        return self.bbox[1]
+
+
+def extract_lines(doc):
+    """All text lines in reading order, tiny text (< MIN_SIZE) discarded.
+
+    Returns (lines, page_heights)."""
+    lines, heights = [], []
+    for pno, page in enumerate(doc):
+        heights.append(page.rect.height)
+        for block in page.get_text("dict")["blocks"]:
+            for ln in block.get("lines", []):
+                chars = Counter()
+                parts = []
+                for sp in ln["spans"]:
+                    parts.append(sp["text"])
+                    if sp["text"].strip():
+                        chars[round(sp["size"], 1)] += len(sp["text"].strip())
+                text = "".join(parts).strip()
+                if not text or not chars:
+                    continue
+                size = chars.most_common(1)[0][0]
+                if size < MIN_SIZE:
+                    continue
+                lines.append(Line(pno, tuple(ln["bbox"]), size, text))
+    return lines, heights
+
+
+def body_size(lines):
+    """Most frequent font size by character count.
+
+    Only lines starting near the main left margin are counted, so that
+    indented material (abstracts, block quotes) cannot outweigh the body."""
+    longl = [ln for ln in lines if len(ln.norm) >= 30]
+    pool = lines
+    if longl:
+        margin = min(ln.x0 for ln in longl)  # left text margin
+        near = [ln for ln in lines if ln.x0 <= margin + 8]
+        pool = near or lines
+    cnt = Counter()
+    for ln in pool:
+        cnt[ln.size] += len(ln.norm)
+    return cnt.most_common(1)[0][0] if cnt else 0.0
+
+
+def pitch(size):
+    """Nominal line pitch for a font size."""
+    return 1.2 * size
+
+
+# ----------------------------------------------------------- Markdown mode
+def match_markdown(lines, heads, body, verbose):
+    """Sequentially locate every heading; return [(level, title, line)]."""
+    found, pos = [], 0
+    for level, title in heads:
+        target = normalize(title)
+        target_nospace = target.replace(" ", "")
+        hit = None
+        # Pass 1: only lines styled as headings; pass 2: any standalone line.
+        for strict in (True, False):
+            for i in range(pos, len(lines)):
+                first = lines[i]
+                if strict and not (first.size > body * BIGGER_RATIO
+                                   or target in ABSTRACT_WORDS):
+                    continue
+                run = [first]
+                for n in range(1, 4):
+                    if n > 1:
+                        nxt = i + n - 1
+                        if nxt >= len(lines):
+                            break
+                        cand = lines[nxt]
+                        prev = run[-1]
+                        if (cand.page != first.page
+                                or abs(cand.size - first.size) > 0.5
+                                or cand.y0 - prev.y0 > 1.8 * pitch(first.size)):
+                            break
+                        run.append(cand)
+                    joined = " ".join(r.norm for r in run)
+                    if joined == target or joined.replace(" ", "") == target_nospace:
+                        hit = (i + n, first)
+                        break
+                if hit:
+                    break
+            if hit:
+                break
+        if hit:
+            pos = hit[0]
+            found.append((level, title, hit[1]))
+        elif verbose:
+            sys.stderr.write("Avviso: titolo non trovato nel PDF: %s\n" % title)
+    return found
+
+
+# --------------------------------------------------------- font-size mode
+def detect_by_font(lines, heights, verbose):
+    """Infer headings from font sizes; return [(level, title, line)]."""
+    body = body_size(lines)
+    # Drop running header/footer areas and digits-only lines.
+    cand = [ln for ln in lines
+            if ln.y0 >= MARGIN_TOP
+            and ln.bbox[3] <= heights[ln.page] - MARGIN_BOTTOM
+            and not re.fullmatch(r"[\d\s.,]+", ln.text)]
+    big = sorted({ln.size for ln in cand if ln.size > body * BIGGER_RATIO},
+                 reverse=True)[:6]
+    level_of = {s: i + 1 for i, s in enumerate(big)}
+    if verbose:
+        sys.stderr.write("Corpo %.1f pt; dimensioni titoli: %s\n"
+                         % (body, ", ".join("%.1f" % s for s in big) or "-"))
+
+    # Title rule: biggest size, first group at the very top of page 1; later
+    # lines of that size (authors, affiliations) are not headings.
+    title_lines, title_size = [], None
+    if big:
+        top = big[0]
+        page1 = [ln for ln in cand if ln.page == 0]
+        if page1 and page1[0].size == top:
+            grp = [page1[0]]
+            for ln in page1[1:]:
+                if ln.size == top and ln.y0 - grp[-1].y0 <= TITLE_GAP * pitch(top):
+                    grp.append(ln)
+                else:
+                    break
+            title_lines, title_size = grp, top
+
+    heading_ids, items = set(), []   # items: [page, y0, level, [lines]]
+    if title_lines:
+        items.append([title_lines[0].page, title_lines[0].y0, 1, title_lines])
+        heading_ids.update(id(x) for x in title_lines)
+    title_level = 1 if title_lines else 0
+
+    # Regular headings: merge wrapped lines of the same size.
+    cur = None
+    for ln in cand:
+        is_head = (ln.size in level_of and id(ln) not in heading_ids
+                   and not (title_size and ln.size == title_size))
+        if not is_head:
+            cur = None
+            continue
+        if (cur and cur[3][-1].page == ln.page and cur[3][-1].size == ln.size
+                and ln.y0 - cur[3][-1].y0 < MERGE_GAP * pitch(ln.size)):
+            cur[3].append(ln)
+        else:
+            cur = [ln.page, ln.y0, level_of[ln.size], [ln]]
+            items.append(cur)
+        heading_ids.add(id(ln))
+    # Abstract-like standalone lines, one level below the title.
+    for ln in cand:
+        if ln.norm in ABSTRACT_WORDS and id(ln) not in heading_ids:
+            items.append([ln.page, ln.y0, title_level + 1, [ln]])
+            heading_ids.add(id(ln))
+    items.sort(key=lambda it: (it[0], it[1]))
+    out = []
+    for it in items:
+        text = clean_pdf_title(" ".join(x.text for x in it[3]))
+        out.append((it[2], text, it[3][0]))
+    return out
+
+
+# ------------------------------------------------------------------ output
+def clamp_levels(entries):
+    """First level 1; a level may rise by at most 1 over the previous one."""
+    res, prev = [], 0
+    for level, title, ln in entries:
+        lv = max(1, min(level, prev + 1))
+        res.append((lv, title, ln))
+        prev = lv
+    return res
+
+
+def save_atomic(doc, dest, mode_from=None):
+    """Write doc to a temp file next to dest, then atomically replace it."""
+    d = os.path.dirname(os.path.abspath(dest))
+    fd, tmp = tempfile.mkstemp(prefix=".pdfbookmarks-", suffix=".tmp", dir=d)
+    os.close(fd)
+    try:
+        doc.save(tmp, garbage=0, incremental=False)
+        if mode_from and os.path.exists(mode_from):
+            os.chmod(tmp, os.stat(mode_from).st_mode & 0o7777)
+        os.replace(tmp, dest)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+def run(args):
+    pdf = os.path.abspath(os.path.expanduser(args.pdf))
+    if not os.path.isfile(pdf):
+        raise Fail("file non trovato: %s" % pdf)
+    with open(pdf, "rb") as fh:
+        if b"%PDF-" not in fh.read(1024):
+            raise Fail("non è un file PDF: %s" % pdf)
+    try:
+        doc = fitz.open(pdf)
+    except Exception as exc:
+        raise Fail("impossibile aprire il PDF: %s" % exc)
+    try:
+        if not doc.is_pdf:
+            raise Fail("non è un file PDF: %s" % pdf)
+        if doc.needs_pass or doc.is_encrypted:
+            raise Fail("il PDF è cifrato: %s" % pdf)
+
+        # Choose the heading source.
+        md = args.markdown
+        if md is not None:
+            md = os.path.abspath(os.path.expanduser(md))
+        if md is None:
+            guess = os.path.splitext(pdf)[0] + ".md"
+            if os.path.isfile(guess):
+                md = guess
+        elif not os.path.isfile(md):
+            raise Fail("file Markdown non trovato: %s" % md)
+
+        lines, heights = extract_lines(doc)
+        if md:
+            heads = parse_markdown(md)
+            if not heads:
+                raise Fail("nessun titolo trovato in %s" % md)
+            entries = match_markdown(lines, heads, body_size(lines), args.verbose)
+            source = "Markdown (%s)" % os.path.basename(md)
+        else:
+            entries = detect_by_font(lines, heights, args.verbose)
+            source = "dimensioni dei caratteri"
+        if not entries:
+            raise Fail("nessun titolo trovato nel PDF")
+        entries = clamp_levels(entries)
+
+        old = doc.get_toc()
+        toc = []
+        for lv, title, ln in entries:
+            pt = fitz.Point(ln.x0, max(0.0, ln.y0 - DEST_MARGIN))
+            # "kind" is required, otherwise no destination is written.
+            toc.append([lv, title, ln.page + 1,
+                        {"kind": fitz.LINK_GOTO, "to": pt, "zoom": 0}])
+
+        if args.verbose or args.dry_run:
+            print("Sorgente dei titoli: %s" % source)
+            for lv, title, ln in entries:
+                print("%d\tp.%d\t%s%s" % (lv, ln.page + 1, "  " * (lv - 1), title))
+        if args.dry_run:
+            print("Simulazione: %d segnalibri sarebbero creati (nessun file scritto)."
+                  % len(entries))
+            return
+
+        doc.set_toc(toc, collapse=6)  # keep every level expanded
+        dest = (os.path.abspath(os.path.expanduser(args.output))
+                if args.output else pdf)
+        save_atomic(doc, dest, mode_from=pdf)
+        msg = "Creati %d segnalibri in %s" % (len(entries), dest)
+        if old:
+            msg += " (sostituito l'indice esistente di %d voci)" % len(old)
+        print(msg)
+    finally:
+        doc.close()
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        prog="pdfbookmarks",
+        description="Aggiunge segnalibri gerarchici (outline) a un PDF che ne "
+                    "è privo, ad esempio un PDF esportato da iA Writer. I "
+                    "titoli provengono dal sorgente Markdown o, in mancanza, "
+                    "dalle dimensioni dei caratteri. Il contenuto visibile "
+                    "non cambia; un indice già presente viene sostituito.")
+    ap.add_argument("pdf", help="file PDF da elaborare")
+    ap.add_argument("-m", "--markdown", metavar="FILE.md",
+                    help="sorgente Markdown dei titoli (predefinito: .md "
+                         "omonimo accanto al PDF, se esiste)")
+    ap.add_argument("-o", "--output", metavar="OUT.pdf",
+                    help="scrive il risultato in OUT.pdf lasciando intatto "
+                         "l'originale (predefinito: modifica sul posto)")
+    ap.add_argument("-n", "--dry-run", action="store_true",
+                    help="mostra l'indice che verrebbe creato senza scrivere")
+    ap.add_argument("-v", "--verbose", action="store_true",
+                    help="stampa i dettagli e gli avvisi sui titoli non trovati")
+    args = ap.parse_args(argv)
+    try:
+        run(args)
+    except Exception as exc:
+        sys.stderr.write("pdfbookmarks: errore: %s\n" % exc)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

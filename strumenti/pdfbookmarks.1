@@ -1,0 +1,144 @@
+.TH PDFBOOKMARKS 1 "October 2026" "pdfbookmarks" "User Commands"
+.SH NAME
+pdfbookmarks \- add a hierarchical bookmark outline to a PDF
+.SH SYNOPSIS
+.B pdfbookmarks
+.I file.pdf
+.RB [ \-m | \-\-markdown
+.IR file.md ]
+.RB [ \-o | \-\-output
+.IR out.pdf ]
+.RB [ \-n | \-\-dry\-run ]
+.RB [ \-v | \-\-verbose ]
+.SH DESCRIPTION
+.B pdfbookmarks
+adds a PDF outline (the bookmarks shown in the side panel of Preview or
+Acrobat) to a PDF that has none.
+PDFs exported from iA Writer through the macOS Quartz PDF engine contain no
+bookmarks, even though the document has a clear heading structure.
+The visible content of the PDF is not changed.
+.PP
+The headings come from one of two sources, chosen in this order:
+.IP 1. 3
+The Markdown file given with
+.BR \-m ;
+.IP 2. 3
+A Markdown file next to the PDF with the same base name and a
+.B .md
+extension, if it exists.
+.PP
+If neither is available, the headings are detected from the font sizes in
+the PDF.
+.SS Markdown mode
+ATX headings (\fB#\fR to \fB######\fR) are read from the Markdown source,
+ignoring fenced code blocks.
+Trailing \fB#\fR characters, MultiMarkdown labels (\fB[Label]\fR), emphasis
+markers, inline code marks and link syntax are removed from the heading text.
+Each heading is then searched in the text of the PDF, sequentially: the search
+for a heading starts just after the previous match.
+Comparison is made on normalized text (Unicode NFKC, so ligatures are
+expanded; soft hyphens removed; typographic apostrophes unified; case
+ignored).
+A heading matches a line that consists of the heading alone, or up to three
+consecutive lines of the same font size (a heading that wraps).
+Lines larger than the body text are preferred.
+Headings that are not found are skipped (a warning is printed with
+.BR \-v ).
+The outline level is the number of \fB#\fR characters, adjusted so that the
+first entry is level 1 and a level never increases by more than one.
+.SS Font-size mode
+The body size is the most frequent font size.
+Lines larger than the body size by more than 4% are headings; each distinct
+size, from the largest, gives levels 1, 2, 3 (up to 6).
+The largest size is the document title only if its first group of lines is at
+the top of the first page; later lines of that size (authors, affiliations)
+are not headings.
+A standalone line reading
+.IR Abstract ,
+.I Riassunto
+or
+.I Sommario
+is added one level below the title.
+Consecutive heading lines of the same size are merged (wrapped titles).
+Text smaller than 8 pt, digits-only lines and the top and bottom 70 pt of
+each page are ignored.
+.PP
+Every bookmark points to the page and to the position of the heading.
+An existing outline is replaced.
+.SH OPTIONS
+.TP
+.I file.pdf
+The PDF to process.
+.TP
+.BR \-m ", " \-\-markdown " " \fIfile.md\fR
+Take the headings from this Markdown file.
+.TP
+.BR \-o ", " \-\-output " " \fIout.pdf\fR
+Write the result to
+.I out.pdf
+and leave the input file untouched.
+By default the PDF is modified in place: the new file is written to a
+temporary file in the same directory and then atomically moved over the
+original, so a half-written file is never left behind.
+.TP
+.BR \-n ", " \-\-dry\-run
+Print the outline that would be created (level, page, title) and write
+nothing.
+.TP
+.BR \-v ", " \-\-verbose
+Print details, including the outline and warnings about headings not found.
+.TP
+.BR \-h ", " \-\-help
+Show the help text (in Italian) and exit.
+.SH EXAMPLES
+Add bookmarks in place after exporting from iA Writer, using the Markdown
+file with the same name:
+.PP
+.RS
+.nf
+$ pdfbookmarks ~/Documents/article.pdf
+.fi
+.RE
+.PP
+Preview the outline using an explicit Markdown file:
+.PP
+.RS
+.nf
+$ pdfbookmarks -n -m ~/Documents/article.md ~/Desktop/export.pdf
+.fi
+.RE
+.PP
+Keep the original and write a bookmarked copy, detecting headings from font
+sizes:
+.PP
+.RS
+.nf
+$ pdfbookmarks -o article-indexed.pdf article.pdf
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success (also for \fB\-n\fR).
+.TP
+.B 1
+Error: file missing, not a PDF, encrypted PDF, Markdown file missing, or no
+headings found.
+.SH NOTES
+Matching is sequential: headings must appear in the PDF in the same order as
+in the Markdown source.
+Duplicate titles are therefore handled in order of appearance, but a heading
+out of order may be skipped.
+.PP
+The tool needs PyMuPDF, which is installed system-wide with
+.BR "/Library/Frameworks/Python.framework/Versions/3.13/bin/pip3 install pymupdf" ;
+it uses no external commands and works with
+a minimal
+.BR PATH .
+.PP
+An existing outline is always replaced.
+Messages are printed in Italian.
+.SH SEE ALSO
+.BR pdfinfo (1),
+.BR qpdf (1),
+.BR mutool (1)
