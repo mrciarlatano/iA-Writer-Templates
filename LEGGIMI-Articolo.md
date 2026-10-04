@@ -7,12 +7,12 @@ esportato, e due azioni Automator che lo richiamano.
 
 ## Caratteristiche
 
-- Formato A4, margini di 3 cm, interlinea singola.
+- Formato A4, margini di 3,6 cm, interlinea 1,7.
 - Font: Source Serif 4 per il testo, Source Code Pro per codice e URL.
   **I due font vanno installati** nel sistema, altrimenti iA Writer ripiega su
   Georgia e Menlo.
-- Corpi: testo 11 pt, citazioni a capo 10 pt, note 9 pt. Titoli: h1 14 pt,
-  h2 13 pt, h3 12 pt.
+- Corpi: testo 10 pt, citazioni a capo 9 pt, note 8 pt. Titoli: h1 13 pt,
+  h2 12 pt, h3 11 pt.
 - Numero di pagina in basso. L'intestazione (`header.html`) è vuota, pronta
   per sviluppi futuri.
 

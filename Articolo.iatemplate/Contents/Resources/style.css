@@ -1,20 +1,20 @@
 /*
   Articolo — template iA Writer, modello: articolo arXiv.
-  A4, margini 3 cm, Source Serif 4 11 pt, interlinea singola.
-  Citazioni a capo 10 pt, note 9 pt.
+  A4, margini 3,6 cm, Source Serif 4 10 pt, interlinea 1,7.
+  Citazioni a capo 9 pt, note 8 pt.
 
   Scala di esportazione: il motore di iA Writer impagina a 743,75 px CSS
   e riduce il risultato di 0,8 nel PDF A4 (595 x 842 pt). La variabile
   --k = 0,75 / 0,8 = 0,9375 compensa la riduzione: ogni lunghezza
   assoluta e' scritta come calc(valore * var(--k)), cosi' nel PDF le
-  misure coincidono con il progetto (testo 11 pt, margini 3 cm).
+  misure coincidono con il progetto (testo 10 pt, margini 3,6 cm).
   Nell'anteprima (classi mac, ios, windows sull'elemento html) --k vale 1
   e si vedono le misure CSS reali.
 
   Impaginazione e sillabazione sono affidate allo script in
   document.html (titoli non isolati a fondo pagina, orfane/vedove,
   tabelle intere, trattini soft in italiano, campi Autore e Abstract).
-  Le altezze di intestazione e piè di pagina (85 pt = 3 cm) sono in
+  Le altezze di intestazione e piè di pagina (102 pt = 3,6 cm) sono in
   Info.plist e non sono scalate. L'intestazione (header.html) è vuota;
   il piè di pagina (footer.html) contiene solo il numero di pagina.
 */
@@ -24,8 +24,8 @@ html.mac, html.ios, html.windows { --k: 1; }
 /* ---------- Base ---------- */
 html {
 	font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
-	font-size: calc(11pt * var(--k));
-	line-height: 1.2;
+	font-size: calc(10pt * var(--k));
+	line-height: 1.7;
 	color: #000;
 	background-color: #fff;
 	font-kerning: normal;
@@ -40,7 +40,7 @@ html.night-mode {
 	background-color: #1b1b1b;
 }
 body {
-	margin: 0 calc(3cm * var(--k));
+	margin: 0 calc(3.6cm * var(--k));
 	padding: 0;
 }
 
@@ -63,16 +63,16 @@ h1, h2, h3, h4, h5, h6 {
 	page-break-after: avoid;
 	break-after: avoid;
 }
-h1 { font-size: calc(14pt * var(--k)); text-align: center; margin: 0 0 calc(18pt * var(--k)); }
-h2 { font-size: calc(13pt * var(--k)); margin: calc(18pt * var(--k)) 0 calc(9pt * var(--k)); }
-h3 { font-size: calc(12pt * var(--k)); margin: calc(12pt * var(--k)) 0 calc(4pt * var(--k)); }
-h4, h5, h6 { font-size: calc(11pt * var(--k)); font-style: italic; margin: calc(9pt * var(--k)) 0 calc(3pt * var(--k)); }
+h1 { line-height: 1.3; font-size: calc(13pt * var(--k)); text-align: center; margin: 0 0 calc(18pt * var(--k)); }
+h2 { line-height: 1.3; font-size: calc(12pt * var(--k)); margin: calc(18pt * var(--k)) 0 calc(9pt * var(--k)); }
+h3 { line-height: 1.3; font-size: calc(11pt * var(--k)); margin: calc(12pt * var(--k)) 0 calc(4pt * var(--k)); }
+h4, h5, h6 { line-height: 1.3; font-size: calc(10pt * var(--k)); font-style: italic; margin: calc(9pt * var(--k)) 0 calc(3pt * var(--k)); }
 
 /* ---------- Autore e abstract (facoltativi, marcati dallo script) ---------- */
 .author {
 	text-align: center;
 	text-indent: 0;
-	font-size: calc(14pt * var(--k));
+	font-size: calc(13pt * var(--k));
 	font-weight: normal;
 	font-style: normal;
 	margin: 0 0 calc(18pt * var(--k));
@@ -91,7 +91,7 @@ h4.abstract-title, h5.abstract-title, h6.abstract-title, div.abstract-title {
 	break-after: avoid;
 }
 .abstract {
-	font-size: calc(10pt * var(--k));
+	font-size: calc(9pt * var(--k));
 	font-style: italic;
 	margin-left: calc(1cm * var(--k));
 	margin-right: calc(1cm * var(--k));
@@ -104,7 +104,7 @@ strong, b { font-weight: bold; }
 /* ---------- Citazioni a capo ---------- */
 blockquote {
 	margin: calc(13pt * var(--k)) calc(1cm * var(--k));
-	font-size: calc(10pt * var(--k));
+	font-size: calc(9pt * var(--k));
 	page-break-inside: avoid;
 	break-inside: avoid;
 }
@@ -170,7 +170,8 @@ figure {
 }
 figure img { max-width: 100%; }
 figcaption, caption {
-	font-size: calc(10pt * var(--k));
+	line-height: 1.4;
+	font-size: calc(9pt * var(--k));
 	text-align: center;
 	text-indent: 0;
 	margin-top: calc(4pt * var(--k));
@@ -179,9 +180,10 @@ figcaption::before { content: "Fig. " counter(fig) ". "; }
 
 table {
 	border-collapse: collapse;
-	max-width: calc(13cm * var(--k));
+	max-width: calc(13.8cm * var(--k));
 	margin: calc(13pt * var(--k)) auto;
-	font-size: calc(10pt * var(--k));
+	font-size: calc(9pt * var(--k));
+	line-height: 1.4;
 	counter-increment: tab;
 	page-break-inside: avoid;
 	break-inside: avoid;
@@ -208,8 +210,8 @@ table p { text-indent: 0; }
 /* ---------- Note a piè di pagina (numerazione continua) ---------- */
 sup { font-size: 0.7em; line-height: 0; }
 .footnotes {
-	font-size: calc(9pt * var(--k));
-	line-height: 1.2;
+	font-size: calc(8pt * var(--k));
+	line-height: 1.4;
 	margin-top: calc(18pt * var(--k));
 }
 .footnotes hr {

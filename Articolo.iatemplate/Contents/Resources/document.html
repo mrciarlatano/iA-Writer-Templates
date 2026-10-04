@@ -243,10 +243,10 @@
 	/* Impaginazione deterministica.
 	   Sostituisce break-after:avoid e simili, che il motore di
 	   esportazione ignora. Il motore impagina a PRINT_W px CSS e poi
-	   riduce di 0,8 nel PDF A4: area utile 842 - 2*85 = 672 pt reali
-	   = 672 / 0,8 = 840 px CSS. */
+	   riduce di 0,8 nel PDF A4: area utile 842 - 2*102 = 638 pt reali
+	   = 638 / 0,8 = 797,5 px CSS. */
 	var PRINT_W = 743.75;
-	var PAGE_PX = 672 / 0.8;
+	var PAGE_PX = 638 / 0.8;
 	var SAFETY = 4;
 
 	/* Forza la larghezza di misura uguale a quella di stampa. */

@@ -11,9 +11,9 @@
 	<key>CFBundleName</key>
 	<string>Articolo</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.1</string>
+	<string>1.2</string>
 	<key>CFBundleVersion</key>
-	<string>11</string>
+	<string>12</string>
 	<key>IATemplateDocumentFile</key>
 	<string>document</string>
 	<key>IATemplateHeaderFile</key>
@@ -21,11 +21,11 @@
 	<key>IATemplateFooterFile</key>
 	<string>footer</string>
 	<key>IATemplateFooterHeight</key>
-	<integer>85</integer>
+	<integer>102</integer>
 	<key>IATemplateHeaderHeight</key>
-	<integer>85</integer>
+	<integer>102</integer>
 	<key>IATemplateDescription</key>
-	<string>Articolo scientifico in italiano, in stile arXiv: A4 con margini di 3 cm, Source Serif 4, sillabazione italiana, numero di pagina in basso. Campi facoltativi: riga «Autore:» sotto il titolo e riassunto con «Abstract:» o titolo Abstract.</string>
+	<string>Articolo scientifico in italiano, in stile arXiv: A4 con margini di 3,6 cm, Source Serif 4 a 10 pt con interlinea 1,7, sillabazione italiana, numero di pagina in basso. Campi facoltativi: riga «Autore:» sotto il titolo e riassunto con «Abstract:» o titolo Abstract.</string>
 	<key>IATemplateAuthor</key>
 	<string>mrciarlatano</string>
 	<key>IATemplateAuthorURL</key>
